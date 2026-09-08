@@ -81,28 +81,76 @@ class KnowledgeBase:
             self.db.executemany('INSERT INTO search VALUES(?,?)', [(row[0], ' '.join(tokenize(row[6]))) for row in batch])
         return len(batch)
 
+    def retrieve(self, owner: str, query: str, top_k: int = 3) -> list[dict]:
+        if not 1 <= top_k <= 20:
+            raise ValueError('top_k 必须在 1 到 20 之间。')
+        tokens = list(dict.fromkeys(tokenize(query)))[:80]
+        lexical = []
+        if tokens:
+            expression = ' OR '.join('"' + token.replace('"', '""') + '"' for token in tokens)
+            lexical = self.db.execute('''SELECT c.*, bm25(search) AS rank
+                FROM search JOIN chunks c ON search.id=c.id
+                WHERE search MATCH ? AND c.owner=? ORDER BY rank, c.id LIMIT 50''', (expression, owner)).fetchall()
+        scores = {row['id']: 1 / (60 + rank) for rank, row in enumerate(lexical, 1)}
+        contents = {row['id']: dict(row) for row in lexical}
+        keys = sorted(scores, key=lambda key: (-scores[key], key))[:top_k]
+        return [dict(contents[key], retrieval_score=scores[key]) for key in keys]
+
+
+def answer(query: str, hits: list[dict]) -> dict:
+    if not hits:
+        return {'mode': 'no_evidence', 'answer': '没有找到可引用的资料，请补充文档或换用更具体的关键词。', 'citations': []}
+    evidence = [{'id': row['id'], 'source': Path(row['source']).name, 'page': row['page'],
+                 'lines': [row['first_line'], row['last_line']], 'text': row['body']} for row in hits]
+    return {'mode': 'evidence_only', 'answer': '以下为检索到的原文片段；本模式未调用生成模型。', 'citations': evidence}
+
+
+
+def demo() -> dict:
+    with tempfile.TemporaryDirectory(prefix='rag-learning-') as directory:
+        with KnowledgeBase(Path(directory) / 'demo.sqlite') as kb:
+            for path in sorted((Path(__file__).parent / 'data').glob('*.md')):
+                kb.ingest('demo', path)
+            cases = [('采购订单需要谁审批？', 'procurement.md'), ('营业收入是多少？', 'report.md'), ('质保期限多久？', 'quality.md')]
+            output = []
+            passed = 0
+            for query, expected in cases:
+                hits = kb.retrieve('demo', query)
+                ok = bool(hits) and Path(hits[0]['source']).name == expected
+                passed += int(ok)
+                output.append({'question': query, 'expected_source': expected, 'top1_pass': ok, 'result': answer(query, hits)})
+            return {'fixture': '合成采购资料，仅检索基线，不代表真实RAG准确率', 'top1_cases_passed': passed,
+                    'total_cases': len(cases), 'cases': output}
+
 
 def main():
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--db', type=Path, default=Path(__file__).parent / '.local' / 'rag.sqlite')
     parser.add_argument('--user', default='learner', help='本地命名空间，不是登录认证')
     commands = parser.add_subparsers(dest='command', required=True)
+    commands.add_parser('demo')
     ingest = commands.add_parser('ingest')
     ingest.add_argument('files', nargs='+', type=Path)
-    commands.add_parser('inspect')
+    ask = commands.add_parser('ask')
+    ask.add_argument('question')
+    ask.add_argument('--top-k', type=int, default=3)
     args = parser.parse_args()
     try:
-        with KnowledgeBase(args.db) as kb:
-            if args.command == 'ingest':
-                result = {'chunks_indexed': sum(kb.ingest(args.user, path) for path in args.files)}
-            else:
-                result = [dict(row) for row in kb.db.execute('SELECT * FROM chunks WHERE owner=? ORDER BY source,page,first_line', (args.user,))]
-            print(json.dumps(result, ensure_ascii=False, indent=2))
-    except (ValueError, OSError, sqlite3.Error) as exc:
+        if args.command == 'demo':
+            result = demo()
+        else:
+            with KnowledgeBase(args.db) as kb:
+                if args.command == 'ingest':
+                    result = {'chunks_indexed': sum(kb.ingest(args.user, path) for path in args.files)}
+                else:
+                    hits = kb.retrieve(args.user, args.question, args.top_k)
+                    result = answer(args.question, hits)
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    except (ValueError, RuntimeError, KeyError, TypeError, OSError, sqlite3.Error) as exc:
         parser.exit(1, f'失败：{exc}\n')
-
 
 
 if __name__ == '__main__':
