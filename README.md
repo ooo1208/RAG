@@ -16,12 +16,13 @@ python rag_lab.py demo
 
 PowerShell 编码异常时可先设置 `$env:PYTHONIOENCODING = 'utf-8'`。数据均为合成资料；演示使用临时数据库、不会调用外部模型。
 
-## 当前能力（第 4 章）
+## 当前能力（第 5 章）
 
 - TXT、Markdown、CSV 原始文本读取，以及可选文本 PDF 按页提取。
 - 追加重叠切片、页码/行范围、SQLite 事务替换、命名空间。
 - 追加 FTS5 BM25 中文词法检索、引用来源、3 个合成演示问题。
 - 追加可选真实 Embedding 接口、余弦检索、RRF 融合、更新后向量失效。
+- 追加显式 `--live` 的真实聊天模型接口及回答/引用结构校验。
 
 ## 逐章学习
 
@@ -31,6 +32,7 @@ PowerShell 编码异常时可先设置 `$env:PYTHONIOENCODING = 'utf-8'`。数�
 | 02 | [切片与事务化入库](docs/chapter-02.md) | `chapter-02` |
 | 03 | [BM25 检索与原文引用](docs/chapter-03.md) | `chapter-03` |
 | 04 | [真实向量接口与混合检索](docs/chapter-04.md) | `chapter-04` |
+| 05 | [模型回答与引用校验](docs/chapter-05.md) | `chapter-05` |
 
 查看一章用 `git switch --detach chapter-01`，回到最新用 `git switch main`。各章文档中给出的运行方式与对应标签匹配；最新版本的 CLI 已随着能力扩展调整。
 
@@ -57,3 +59,12 @@ python rag_lab.py ask '保修多长时间？' --hybrid
 ```
 
 `embed` 会将当前命名空间文档发往你配置的服务，混合检索也会发送问题。文档更新、模型或服务变化后必须重新构建向量。当前用全量余弦比较，适合小语料，未实现向量数据库或 ANN 索引。RRF 分数不是答对概率。
+
+```powershell
+$env:MODEL_BASE_URL = 'https://你的模型服务/v1'
+$env:MODEL_API_KEY = '你的密钥'
+$env:MODEL_NAME = '服务支持的聊天模型名'
+python rag_lab.py ask '采购订单需要谁审批？' --live
+```
+
+`--live` 会把提问和召回片段发往你配置的聊天服务；没有该开关时只展示原文证据。服务或结构校验失败会报错，不会伪装成成功的模型结果。
