@@ -16,11 +16,12 @@ python rag_lab.py demo
 
 PowerShell 编码异常时可先设置 `$env:PYTHONIOENCODING = 'utf-8'`。数据均为合成资料；演示使用临时数据库、不会调用外部模型。
 
-## 当前能力（第 3 章）
+## 当前能力（第 4 章）
 
 - TXT、Markdown、CSV 原始文本读取，以及可选文本 PDF 按页提取。
 - 追加重叠切片、页码/行范围、SQLite 事务替换、命名空间。
 - 追加 FTS5 BM25 中文词法检索、引用来源、3 个合成演示问题。
+- 追加可选真实 Embedding 接口、余弦检索、RRF 融合、更新后向量失效。
 
 ## 逐章学习
 
@@ -29,6 +30,7 @@ PowerShell 编码异常时可先设置 `$env:PYTHONIOENCODING = 'utf-8'`。数�
 | 01 | [文档读取与证据位置](docs/chapter-01.md) | `chapter-01` |
 | 02 | [切片与事务化入库](docs/chapter-02.md) | `chapter-02` |
 | 03 | [BM25 检索与原文引用](docs/chapter-03.md) | `chapter-03` |
+| 04 | [真实向量接口与混合检索](docs/chapter-04.md) | `chapter-04` |
 
 查看一章用 `git switch --detach chapter-01`，回到最新用 `git switch main`。各章文档中给出的运行方式与对应标签匹配；最新版本的 CLI 已随着能力扩展调整。
 
@@ -41,3 +43,17 @@ python rag_lab.py --user another ask "采购订单需要谁审批？"
 ```
 
 第二个用户应没有证据。`--user` 只是 CLI 命名空间，拥有数据库文件权限的人仍能读取内容。默认索引位于 `.local/rag.sqlite`，不会加入 Git。
+
+## 可选真实模型
+
+参考 [.env.example](.env.example) 在运行终端配置环境变量；程序不会自动加载 `.env`。`BASE_URL` 应包含供应商实际要求的路径，例如 `/v1`，示例占位符不是可用服务。
+
+```powershell
+$env:EMBEDDING_BASE_URL = 'https://你的向量服务/v1'
+$env:EMBEDDING_API_KEY = '你的密钥'
+$env:EMBEDDING_MODEL = '服务支持的向量模型名'
+python rag_lab.py embed
+python rag_lab.py ask '保修多长时间？' --hybrid
+```
+
+`embed` 会将当前命名空间文档发往你配置的服务，混合检索也会发送问题。文档更新、模型或服务变化后必须重新构建向量。当前用全量余弦比较，适合小语料，未实现向量数据库或 ANN 索引。RRF 分数不是答对概率。
